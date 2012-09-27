@@ -57,8 +57,11 @@ class Packetizer (object):
 
     # READ the secsh RFC's before raising these values.  if anything,
     # they should probably be lower.
-    REKEY_PACKETS = pow(2, 30)
-    REKEY_BYTES = pow(2, 30)
+    REKEY_PACKETS = pow(2, 29)
+    REKEY_BYTES = pow(2, 29)
+
+    REKEY_PACKETS_OVERFLOW_MAX = pow(2,29)      # Allow receiving this many packets after a re-key request before terminating
+    REKEY_BYTES_OVERFLOW_MAX = pow(2,29)        # Allow receiving this many bytes after a re-key request before terminating
 
     def __init__(self, socket):
         self.__socket = socket
@@ -74,6 +77,7 @@ class Packetizer (object):
         self.__sent_packets = 0
         self.__received_bytes = 0
         self.__received_packets = 0
+        self.__received_bytes_overflow = 0
         self.__received_packets_overflow = 0
 
         # current inbound/outbound ciphering:
@@ -134,6 +138,7 @@ class Packetizer (object):
         self.__mac_key_in = mac_key
         self.__received_bytes = 0
         self.__received_packets = 0
+        self.__received_bytes_overflow = 0
         self.__received_packets_overflow = 0
         # wait until the reset happens in both directions before clearing rekey flag
         self.__init_count |= 2
@@ -236,23 +241,23 @@ class Packetizer (object):
     def write_all(self, out):
         self.__keepalive_last = time.time()
         while len(out) > 0:
-            got_timeout = False
+            retry_write = False
             try:
                 n = self.__socket.send(out)
             except socket.timeout:
-                got_timeout = True
+                retry_write = True
             except socket.error, e:
                 if (type(e.args) is tuple) and (len(e.args) > 0) and (e.args[0] == errno.EAGAIN):
-                    got_timeout = True
+                    retry_write = True
                 elif (type(e.args) is tuple) and (len(e.args) > 0) and (e.args[0] == errno.EINTR):
                     # syscall interrupted; try again
-                    pass
+                    retry_write = True
                 else:
                     n = -1
             except Exception:
                 # could be: (32, 'Broken pipe')
                 n = -1
-            if got_timeout:
+            if retry_write:
                 n = 0
                 if self.__closed:
                     n = -1
@@ -311,14 +316,12 @@ class Packetizer (object):
 
             self.__sent_bytes += len(out)
             self.__sent_packets += 1
-            if (self.__sent_packets % 100) == 0:
-                # stirring the randpool takes 30ms on my ibook!!
-                randpool.stir()
             if ((self.__sent_packets >= self.REKEY_PACKETS) or (self.__sent_bytes >= self.REKEY_BYTES)) \
                    and not self.__need_rekey:
                 # only ask once for rekeying
                 self._log(DEBUG, 'Rekeying (hit %d packets, %d bytes sent)' %
                           (self.__sent_packets, self.__sent_bytes))
+                self.__received_bytes_overflow = 0
                 self.__received_packets_overflow = 0
                 self._trigger_rekey()
         finally:
@@ -359,7 +362,7 @@ class Packetizer (object):
                 raise SSHException('Mismatched MAC')
         padding = ord(packet[0])
         payload = packet[1:packet_size - padding]
-        randpool.add_event()
+        
         if self.__dump_packets:
             self._log(DEBUG, 'Got payload (%d bytes, %d padding)' % (packet_size, padding))
 
@@ -371,19 +374,23 @@ class Packetizer (object):
         self.__sequence_number_in = (self.__sequence_number_in + 1) & 0xffffffffL
 
         # check for rekey
-        self.__received_bytes += packet_size + self.__mac_size_in + 4
+        raw_packet_size = packet_size + self.__mac_size_in + 4
+        self.__received_bytes += raw_packet_size
         self.__received_packets += 1
         if self.__need_rekey:
-            # we've asked to rekey -- give them 20 packets to comply before
+            # we've asked to rekey -- give them some packets to comply before
             # dropping the connection
+            self.__received_bytes_overflow += raw_packet_size
             self.__received_packets_overflow += 1
-            if self.__received_packets_overflow >= 20:
+            if (self.__received_packets_overflow >= self.REKEY_PACKETS_OVERFLOW_MAX) or \
+               (self.__received_bytes_overflow >= self.REKEY_BYTES_OVERFLOW_MAX):
                 raise SSHException('Remote transport is ignoring rekey requests')
         elif (self.__received_packets >= self.REKEY_PACKETS) or \
              (self.__received_bytes >= self.REKEY_BYTES):
             # only ask once for rekeying
             self._log(DEBUG, 'Rekeying (hit %d packets, %d bytes received)' %
                       (self.__received_packets, self.__received_bytes))
+            self.__received_bytes_overflow = 0
             self.__received_packets_overflow = 0
             self._trigger_rekey()
 
@@ -462,6 +469,12 @@ class Packetizer (object):
                 break
             except socket.timeout:
                 pass
+            except EnvironmentError, e:
+                if ((type(e.args) is tuple) and (len(e.args) > 0) and
+                    (e.args[0] == errno.EINTR)):
+                    pass
+                else:
+                    raise
             if self.__closed:
                 raise EOFError()
             now = time.time()
@@ -476,7 +489,7 @@ class Packetizer (object):
         packet = struct.pack('>IB', len(payload) + padding + 1, padding)
         packet += payload
         if self.__block_engine_out is not None:
-            packet += randpool.get_bytes(padding)
+            packet += rng.read(padding)
         else:
             # cute trick i caught openssh doing: if we're not encrypting,
             # don't waste random bytes for the padding

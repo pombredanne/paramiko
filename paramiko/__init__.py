@@ -1,4 +1,4 @@
-# Copyright (C) 2003-2009  Robey Pointer <robeypointer@gmail.com>
+# Copyright (C) 2003-2011  Robey Pointer <robeypointer@gmail.com>
 #
 # This file is part of paramiko.
 #
@@ -45,12 +45,7 @@ receive data over the encrypted session.
 Paramiko is written entirely in python (no C or platform-dependent code) and is
 released under the GNU Lesser General Public License (LGPL).
 
-Website: U{http://www.lag.net/paramiko/}
-
-@version: 1.7.6 (Fanny)
-@author: Robey Pointer
-@contact: robeypointer@gmail.com
-@license: GNU Lesser General Public License (LGPL)
+Website: U{https://github.com/paramiko/paramiko/}
 """
 
 import sys
@@ -59,14 +54,12 @@ if sys.version_info < (2, 2):
     raise RuntimeError('You need python 2.2 for this module.')
 
 
-__author__ = "Robey Pointer <robeypointer@gmail.com>"
-__date__ = "1 Nov 2009"
-__version__ = "1.7.6 (Fanny)"
-__version_info__ = (1, 7, 6)
+__author__ = "Jeff Forcier <jeff@bitprophet.org>"
+__version__ = "1.8.0"
 __license__ = "GNU Lesser General Public License (LGPL)"
 
 
-from transport import randpool, SecurityOptions, Transport
+from transport import SecurityOptions, Transport
 from client import SSHClient, MissingHostKeyPolicy, AutoAddPolicy, RejectPolicy, WarningPolicy
 from auth_handler import AuthHandler
 from channel import Channel, ChannelFile
@@ -105,6 +98,8 @@ from common import AUTH_SUCCESSFUL, AUTH_PARTIALLY_SUCCESSFUL, AUTH_FAILED, \
 from sftp import SFTP_OK, SFTP_EOF, SFTP_NO_SUCH_FILE, SFTP_PERMISSION_DENIED, SFTP_FAILURE, \
      SFTP_BAD_MESSAGE, SFTP_NO_CONNECTION, SFTP_CONNECTION_LOST, SFTP_OP_UNSUPPORTED
 
+from common import io_sleep
+
 __all__ = [ 'Transport',
             'SSHClient',
             'MissingHostKeyPolicy',
@@ -138,4 +133,5 @@ __all__ = [ 'Transport',
             'AgentKey',
             'HostKeys',
             'SSHConfig',
-            'util' ]
+            'util',
+            'io_sleep' ]

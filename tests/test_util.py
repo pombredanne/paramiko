@@ -22,6 +22,7 @@ Some unit tests for utility functions.
 
 from binascii import hexlify
 import cStringIO
+import errno
 import os
 import unittest
 from Crypto.Hash import SHA
@@ -120,12 +121,19 @@ class UtilTest (unittest.TestCase):
         global test_config_file
         f = cStringIO.StringIO(test_config_file)
         config = paramiko.util.parse_ssh_config(f)
-        c = paramiko.util.lookup_ssh_host_config('irc.danger.com', config)
-        self.assertEquals(c, {'identityfile': '~/.ssh/id_rsa', 'user': 'robey', 'crazy': 'something dumb  '})
-        c = paramiko.util.lookup_ssh_host_config('irc.example.com', config)
-        self.assertEquals(c, {'identityfile': '~/.ssh/id_rsa', 'user': 'bjork', 'crazy': 'something dumb  ', 'port': '3333'})
-        c = paramiko.util.lookup_ssh_host_config('spoo.example.com', config)
-        self.assertEquals(c, {'identityfile': '~/.ssh/id_rsa', 'user': 'bjork', 'crazy': 'something else', 'port': '3333'})
+        for host, values in {
+            'irc.danger.com': {'user': 'robey', 'crazy': 'something dumb  '},
+            'irc.example.com': {'user': 'bjork', 'crazy': 'something dumb  ', 'port': '3333'},
+            'spoo.example.com': {'user': 'bjork', 'crazy': 'something else', 'port': '3333'}
+        }.items():
+            values = dict(values,
+                hostname=host,
+                identityfile=os.path.expanduser("~/.ssh/id_rsa")
+            )
+            self.assertEquals(
+                paramiko.util.lookup_ssh_host_config(host, config),
+                values
+            )
 
     def test_4_generate_key_bytes(self):
         x = paramiko.util.generate_key_bytes(SHA, 'ABCDEFGH', 'This is my secret passphrase.', 64)
@@ -147,8 +155,51 @@ class UtilTest (unittest.TestCase):
             os.unlink('hostfile.temp')
 
     def test_6_random(self):
-        from paramiko.common import randpool
+        from paramiko.common import rng
         # just verify that we can pull out 32 bytes and not get an exception.
-        x = randpool.get_bytes(32)
+        x = rng.read(32)
         self.assertEquals(len(x), 32)
         
+    def test_7_host_config_expose_issue_33(self):
+        test_config_file = """
+Host www13.*
+    Port 22
+
+Host *.example.com
+    Port 2222
+
+Host *
+    Port 3333
+    """
+        f = cStringIO.StringIO(test_config_file)
+        config = paramiko.util.parse_ssh_config(f)
+        host = 'www13.example.com'
+        self.assertEquals(
+            paramiko.util.lookup_ssh_host_config(host, config),
+            {'hostname': host, 'port': '22'}
+        )
+
+    def test_8_eintr_retry(self):
+        self.assertEquals('foo', paramiko.util.retry_on_signal(lambda: 'foo'))
+
+        # Variables that are set by raises_intr
+        intr_errors_remaining = [3]
+        call_count = [0]
+        def raises_intr():
+            call_count[0] += 1
+            if intr_errors_remaining[0] > 0:
+                intr_errors_remaining[0] -= 1
+                raise IOError(errno.EINTR, 'file', 'interrupted system call')
+        self.assertTrue(paramiko.util.retry_on_signal(raises_intr) is None)
+        self.assertEquals(0, intr_errors_remaining[0])
+        self.assertEquals(4, call_count[0])
+
+        def raises_ioerror_not_eintr():
+            raise IOError(errno.ENOENT, 'file', 'file not found')
+        self.assertRaises(IOError,
+                          lambda: paramiko.util.retry_on_signal(raises_ioerror_not_eintr))
+
+        def raises_other_exception():
+            raise AssertionError('foo')
+        self.assertRaises(AssertionError,
+                          lambda: paramiko.util.retry_on_signal(raises_other_exception))
