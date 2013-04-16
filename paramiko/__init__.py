@@ -18,7 +18,7 @@
 
 """
 I{Paramiko} (a combination of the esperanto words for "paranoid" and "friend")
-is a module for python 2.3 or greater that implements the SSH2 protocol for
+is a module for python 2.5 or greater that implements the SSH2 protocol for
 secure (encrypted and authenticated) connections to remote machines.  Unlike
 SSL (aka TLS), the SSH2 protocol does not require hierarchical certificates
 signed by a powerful central authority.  You may know SSH2 as the protocol that
@@ -50,12 +50,12 @@ Website: U{https://github.com/paramiko/paramiko/}
 
 import sys
 
-if sys.version_info < (2, 2):
-    raise RuntimeError('You need python 2.2 for this module.')
+if sys.version_info < (2, 5):
+    raise RuntimeError('You need python 2.5+ for this module.')
 
 
 __author__ = "Jeff Forcier <jeff@bitprophet.org>"
-__version__ = "1.8.0"
+__version__ = "1.10.1"
 __license__ = "GNU Lesser General Public License (LGPL)"
 
 
@@ -65,7 +65,7 @@ from auth_handler import AuthHandler
 from channel import Channel, ChannelFile
 from ssh_exception import SSHException, PasswordRequiredException, \
     BadAuthenticationType, ChannelException, BadHostKeyException, \
-    AuthenticationException
+    AuthenticationException, ProxyCommandFailure
 from server import ServerInterface, SubsystemHandler, InteractiveQuery
 from rsakey import RSAKey
 from dsskey import DSSKey
@@ -83,6 +83,7 @@ from agent import Agent, AgentKey
 from pkey import PKey
 from hostkeys import HostKeys
 from config import SSHConfig
+from proxy import ProxyCommand
 
 # fix module names for epydoc
 for c in locals().values():
@@ -119,6 +120,8 @@ __all__ = [ 'Transport',
             'BadAuthenticationType',
             'ChannelException',
             'BadHostKeyException',
+            'ProxyCommand',
+            'ProxyCommandFailure',
             'SFTP',
             'SFTPFile',
             'SFTPHandle',

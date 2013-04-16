@@ -44,7 +44,8 @@ from paramiko.primes import ModulusPack
 from paramiko.rsakey import RSAKey
 from paramiko.server import ServerInterface
 from paramiko.sftp_client import SFTPClient
-from paramiko.ssh_exception import SSHException, BadAuthenticationType, ChannelException
+from paramiko.ssh_exception import (SSHException, BadAuthenticationType,
+    ChannelException, ProxyCommandFailure)
 from paramiko.util import retry_on_signal
 
 from Crypto import Random
@@ -1674,6 +1675,8 @@ class Transport (threading.Thread):
                 timeout = 2
             try:
                 buf = self.packetizer.readline(timeout)
+            except ProxyCommandFailure:
+                raise
             except Exception, x:
                 raise SSHException('Error reading SSH protocol banner' + str(x))
             if buf[:4] == 'SSH-':
@@ -1882,7 +1885,8 @@ class Transport (threading.Thread):
             mac_key = self._compute_key('F', mac_engine.digest_size)
         else:
             mac_key = self._compute_key('E', mac_engine.digest_size)
-        self.packetizer.set_outbound_cipher(engine, block_size, mac_engine, mac_size, mac_key)
+        sdctr = self.local_cipher.endswith('-ctr')
+        self.packetizer.set_outbound_cipher(engine, block_size, mac_engine, mac_size, mac_key, sdctr)
         compress_out = self._compression_info[self.local_compression][0]
         if (compress_out is not None) and ((self.local_compression != 'zlib@openssh.com') or self.authenticated):
             self._log(DEBUG, 'Switching on outbound compression ...')
